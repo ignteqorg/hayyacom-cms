@@ -22,7 +22,7 @@ patches:
 
 replicas:
   - name: hayyacom-cms
-    count: 2
+    count: 1
 
 configMapGenerator:
   - name: cms-config
