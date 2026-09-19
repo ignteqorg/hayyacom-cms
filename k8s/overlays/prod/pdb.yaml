@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hayyacom-cms-pdb
+  labels:
+    app: hayyacom-cms
+    environment: production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hayyacom-cms

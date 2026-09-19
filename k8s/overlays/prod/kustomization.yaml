@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: production
+
+namePrefix: ""
+nameSuffix: ""
+
+labels:
+  - pairs:
+      environment: production
+
+resources:
+  - ../../base
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - external-secret.yaml
+
+patches:
+  - path: patches/deployment-patch.yaml
+
+replicas:
+  - name: hayyacom-cms
+    count: 2
+
+configMapGenerator:
+  - name: cms-config
+    envs:
+      - env

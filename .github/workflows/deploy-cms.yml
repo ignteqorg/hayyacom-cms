@@ -1,0 +1,159 @@
+name: Deploy CMS
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "Dockerfile"
+      - "k8s/**"
+      - ".github/workflows/deploy-cms.yml"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: hayyacom
+  SERVICE_NAME: cms
+
+jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.filter.outputs.cms }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for CMS changes
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "cms=true" >> $GITHUB_OUTPUT
+          else
+            git diff --name-only HEAD~1 HEAD > changed_files.txt
+            if grep -qE '^(backend/|frontend/|Dockerfile|k8s/|\.github/workflows/deploy-cms\.yml)' changed_files.txt; then
+              echo "cms=true" >> $GITHUB_OUTPUT
+            else
+              echo "cms=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  build-and-push:
+    name: Build and Push Docker Image
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.meta.outputs.image_uri }}
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE_URI="${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${{ env.SERVICE_NAME }}-prod-${SHORT_SHA}"
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.image_uri }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            SQUIDEX__BUILD__VERSION=7.0.0
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.image_uri }}
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL"
+
+  deploy-prod:
+    name: Deploy to Production
+    needs: [detect-changes, build-and-push]
+    if: needs.detect-changes.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cms.hayyacom.com
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name hayyacom-production-eks
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Deploy to production namespace
+        run: |
+          cd k8s/overlays/prod
+          kustomize edit set image hayyacom-cms=${{ needs.build-and-push.outputs.image_uri }}
+          kubectl apply -k . --validate=false
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/hayyacom-cms -n production --timeout=10m
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n production -l app=hayyacom-cms
+          kubectl get svc -n production -l app=hayyacom-cms
+          kubectl get hpa -n production
+
+      - name: Check pod health
+        run: |
+          POD_COUNT=$(kubectl get pods -n production -l app=hayyacom-cms --field-selector=status.phase=Running --no-headers | wc -l)
+          if [ "$POD_COUNT" -lt 1 ]; then
+            echo "Error: No healthy pods running!"
+            kubectl describe pods -n production -l app=hayyacom-cms
+            exit 1
+          fi
+          echo "Deployment successful! $POD_COUNT pod(s) running."
