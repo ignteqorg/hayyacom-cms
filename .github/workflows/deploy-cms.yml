@@ -60,7 +60,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_PROD }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -120,7 +120,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_PROD }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
