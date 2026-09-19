@@ -1,17 +1,19 @@
 ASPNETCORE_ENVIRONMENT=Production
 ASPNETCORE_HTTP_PORTS=80
 
-# Base URL — used by Squidex to generate absolute links in emails and background jobs
+# Base URL
 URLS__BASEURL=https://cms.hayyacom.com
 URLS__ENABLEFORWARDHEADERS=true
 URLS__ENFORCEHOST=false
 
-# Storage backends
-STORE__TYPE=MongoDb
-EVENTSTORE__TYPE=MongoDb
-MESSAGING__TYPE=MongoDb
+# Storage backends — PostgreSQL
+STORE__TYPE=Sql
+STORE__SQL__PROVIDER=Postgres
+STORE__SQL__RUNMIGRATION=true
+EVENTSTORE__TYPE=Sql
+MESSAGING__TYPE=Sql
 
-# Asset store — S3 bucket for uploaded CMS media
+# Asset store — S3
 ASSETSTORE__TYPE=AmazonS3
 ASSETSTORE__AMAZONS3__BUCKET=hayyacom-production-assets
 ASSETSTORE__AMAZONS3__BUCKETFOLDER=cms-assets
@@ -21,7 +23,7 @@ ASSETSTORE__AMAZONS3__REGIONNAME=ap-south-1
 IDENTITY__ALLOWPASSWORDAUTH=true
 IDENTITY__ADMINRECREATE=true
 
-# Email notifications
+# Email
 EMAIL__SMTP__ENABLESSL=true
 EMAIL__SMTP__PORT=587
 
